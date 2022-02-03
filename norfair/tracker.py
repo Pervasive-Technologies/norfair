@@ -1,5 +1,5 @@
 import math
-from typing import Callable, List, Tuple, Optional, Sequence, Union
+from typing import Callable, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -14,7 +14,7 @@ def points_to_box(points) -> List[float]:
     return box
 
 
-def box_to_points(box: Union[Sequence, np.ndarray]) -> List[Tuple[float]]:
+def box_to_points(box: Union[Sequence, np.ndarray]) -> np.ndarray:
     # convert to list.
     if isinstance(box, np.ndarray):
         assert box.ndim == 1
@@ -22,12 +22,14 @@ def box_to_points(box: Union[Sequence, np.ndarray]) -> List[Tuple[float]]:
     # unstack coordinates.
     ymin, xmin, ymax, xmax = box
     # points is a list of xy pairs.
-    points = [
-        (ymin, xmin),
-        (ymin, xmax),
-        (ymax, xmax),
-        (ymax, xmin),
-    ]
+    points = np.array(
+        [
+            [ymin, xmin],
+            [ymin, xmax],
+            [ymax, xmax],
+            [ymax, xmin],
+        ]
+    )
     return points
 
 
