@@ -297,6 +297,8 @@ class TrackedObject:
         # Create Kalman Filter
         self.filter = filter_setup.create_filter(initial_detection_points)
         self.dim_z = 2 * self.num_points
+        # add sent property.
+        self.sent = False
 
     def tracker_step(self):
         self.hit_counter -= 1
