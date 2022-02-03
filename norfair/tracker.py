@@ -1,11 +1,34 @@
 import math
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, List, Tuple, Optional, Sequence, Union
 
 import numpy as np
-from rich import print
 
 from .utils import validate_points
 from .filter import FilterSetup
+
+
+def points_to_box(points) -> List[float]:
+    ymin, xmin = np.min(points, axis=0).tolist()
+    ymax, xmax = np.max(points, axis=0).tolist()
+    box = [ymin, xmin, ymax, xmax]
+    return box
+
+
+def box_to_points(box: Union[Sequence, np.ndarray]) -> List[Tuple[float]]:
+    # convert to list.
+    if isinstance(box, np.ndarray):
+        assert box.ndim == 1
+        box = box.tolist()
+    # unstack coordinates.
+    ymin, xmin, ymax, xmax = box
+    # points is a list of xy pairs.
+    points = [
+        (ymin, xmin),
+        (ymin, xmax),
+        (ymax, xmax),
+        (ymax, xmin),
+    ]
+    return points
 
 
 class Tracker:
@@ -19,7 +42,7 @@ class Tracker:
         detection_threshold: float = 0,
         point_transience: int = 4,
         filter_setup: "FilterSetup" = FilterSetup(),
-        past_detections_length: int = 4
+        past_detections_length: int = 4,
     ):
         self.tracked_objects: Sequence["TrackedObject"] = []
         self.distance_function = distance_function
@@ -29,7 +52,9 @@ class Tracker:
         if past_detections_length >= 0:
             self.past_detections_length = past_detections_length
         else:
-            raise ValueError(f"Argument `past_detections_length` is {past_detections_length} and should be larger than 0.")
+            raise ValueError(
+                f"Argument `past_detections_length` is {past_detections_length} and should be larger than 0."
+            )
 
         if initialization_delay is None:
             self.initialization_delay = int(
@@ -37,7 +62,8 @@ class Tracker:
             )
         elif (
             initialization_delay < 0
-            or initialization_delay > self.hit_inertia_max - self.hit_inertia_min
+            or initialization_delay
+            > self.hit_inertia_max - self.hit_inertia_min
         ):
             raise ValueError(
                 f"Argument 'initialization_delay' for 'Tracker' class should be an int between 0 and (hit_inertia_max - hit_inertia_min = {hit_inertia_max - hit_inertia_min}). The selected value is {initialization_delay}.\n"
@@ -50,11 +76,15 @@ class Tracker:
         self.point_transience = point_transience
         TrackedObject.count = 0
 
-    def update(self, detections: Optional[List["Detection"]] = None, period: int = 1):
+    def update(
+        self, detections: Optional[List["Detection"]] = None, period: int = 1
+    ):
         self.period = period
 
         # Remove stale trackers and make candidate object real if it has hit inertia
-        self.tracked_objects = [o for o in self.tracked_objects if o.has_inertia]
+        self.tracked_objects = [
+            o for o in self.tracked_objects if o.has_inertia
+        ]
 
         # Update tracker
         for obj in self.tracked_objects:
@@ -62,12 +92,14 @@ class Tracker:
 
         # Update initialized tracked objects with detections
         unmatched_detections = self.update_objects_in_place(
-            [o for o in self.tracked_objects if not o.is_initializing], detections
+            [o for o in self.tracked_objects if not o.is_initializing],
+            detections,
         )
 
         # Update not yet initialized tracked objects with yet unmatched detections
         unmatched_detections = self.update_objects_in_place(
-            [o for o in self.tracked_objects if o.is_initializing], unmatched_detections
+            [o for o in self.tracked_objects if o.is_initializing],
+            unmatched_detections,
         )
 
         # Create new tracked objects from remaining unmatched detections
@@ -82,7 +114,7 @@ class Tracker:
                     self.period,
                     self.point_transience,
                     self.filter_setup,
-                    self.past_detections_length
+                    self.past_detections_length,
                 )
             )
 
@@ -94,7 +126,9 @@ class Tracker:
         detections: Optional[List["Detection"]],
     ):
         if detections is not None and len(detections) > 0:
-            distance_matrix = np.ones((len(detections), len(objects)), dtype=np.float32)
+            distance_matrix = np.ones(
+                (len(detections), len(objects)), dtype=np.float32
+            )
             distance_matrix *= self.distance_threshold + 1
             for d, detection in enumerate(detections):
                 for o, obj in enumerate(objects):
@@ -109,20 +143,16 @@ class Tracker:
                         distance_matrix[d, o] = distance
 
             if np.isnan(distance_matrix).any():
-                print(
+                raise ValueError(
                     "\nReceived nan values from distance function, please check your distance function for errors!"
                 )
-                exit()
             if np.isinf(distance_matrix).any():
-                print(
+                message = (
                     "\nReceived inf values from distance function, please check your distance function for errors!"
-                )
-                print(
                     "If you want to explicitly ignore a certain detection - tracked object pair, just"
+                    "return distance_threshold + 1 from your distance function."
                 )
-                print("return distance_threshold + 1 from your distance function.")
-                exit()
-
+                raise ValueError(message)
             # Used just for debugging distance function
             if distance_matrix.any():
                 for i, minimum in enumerate(distance_matrix.min(axis=0)):
@@ -130,23 +160,30 @@ class Tracker:
                         minimum if minimum < self.distance_threshold else None
                     )
 
-            matched_det_indices, matched_obj_indices = self.match_dets_and_objs(
-                distance_matrix
-            )
+            (
+                matched_det_indices,
+                matched_obj_indices,
+            ) = self.match_dets_and_objs(distance_matrix)
             if len(matched_det_indices) > 0:
                 unmatched_detections = [
-                    d for i, d in enumerate(detections) if i not in matched_det_indices
+                    d
+                    for i, d in enumerate(detections)
+                    if i not in matched_det_indices
                 ]
 
                 # Handle matched people/detections
                 for (match_det_idx, match_obj_idx) in zip(
                     matched_det_indices, matched_obj_indices
                 ):
-                    match_distance = distance_matrix[match_det_idx, match_obj_idx]
+                    match_distance = distance_matrix[
+                        match_det_idx, match_obj_idx
+                    ]
                     matched_detection = detections[match_det_idx]
                     matched_object = objects[match_obj_idx]
                     if match_distance < self.distance_threshold:
-                        matched_object.hit(matched_detection, period=self.period)
+                        matched_object.hit(
+                            matched_detection, period=self.period
+                        )
                         matched_object.last_distance = match_distance
                     else:
                         unmatched_detections.append(matched_detection)
@@ -207,21 +244,26 @@ class TrackedObject:
         period: int,
         point_transience: int,
         filter_setup: "FilterSetup",
-        past_detections_length: int
+        past_detections_length: int,
     ):
         try:
-            initial_detection_points = validate_points(initial_detection.points)
-        except AttributeError:
-            print(
-                f"\n[red]ERROR[/red]: The detection list fed into `tracker.update()` should be composed of {Detection} objects not {type(initial_detection)}.\n"
+            initial_detection_points = validate_points(
+                initial_detection.points
             )
-            exit()
+        except AttributeError:
+            raise ValueError(
+                f"The detection list fed into `tracker.update()` should be composed of {Detection} objects not {type(initial_detection)}."
+            )
         self.num_points = initial_detection_points.shape[0]
         self.hit_inertia_min: int = hit_inertia_min
         self.hit_inertia_max: int = hit_inertia_max
         self.initialization_delay = initialization_delay
-        self.point_hit_inertia_min: int = math.floor(hit_inertia_min / point_transience)
-        self.point_hit_inertia_max: int = math.ceil(hit_inertia_max / point_transience)
+        self.point_hit_inertia_min: int = math.floor(
+            hit_inertia_min / point_transience
+        )
+        self.point_hit_inertia_max: int = math.ceil(
+            hit_inertia_max / point_transience
+        )
         if (self.point_hit_inertia_max - self.point_hit_inertia_min) < period:
             self.point_hit_inertia_max = self.point_hit_inertia_min + period
         self.detection_threshold: float = detection_threshold
@@ -240,7 +282,9 @@ class TrackedObject:
             TrackedObject.initializing_count
         )  # Just for debugging
         TrackedObject.initializing_count += 1
-        self.detected_at_least_once_points = np.array([False] * self.num_points)
+        self.detected_at_least_once_points = np.array(
+            [False] * self.num_points
+        )
         initial_detection.age = self.age
         self.past_detections_length = past_detections_length
         if past_detections_length > 0:
@@ -263,7 +307,8 @@ class TrackedObject:
     def is_initializing(self):
         if (
             self.is_initializing_flag
-            and self.hit_counter > self.hit_inertia_min + self.initialization_delay
+            and self.hit_counter
+            > self.hit_inertia_min + self.initialization_delay
         ):
             self.is_initializing_flag = False
             TrackedObject.count += 1
@@ -279,6 +324,10 @@ class TrackedObject:
         positions = self.filter.x.T.flatten()[: self.dim_z].reshape(-1, 2)
         velocities = self.filter.x.T.flatten()[self.dim_z :].reshape(-1, 2)
         return positions
+
+    @property
+    def estimate_box(self):
+        return points_to_box(self.estimate)
 
     @property
     def live_points(self):
@@ -298,7 +347,9 @@ class TrackedObject:
         # TODO: Use keypoint confidence information to change R on each sensor instead?
         if detection.scores is not None:
             assert len(detection.scores.shape) == 1
-            points_over_threshold_mask = detection.scores > self.detection_threshold
+            points_over_threshold_mask = (
+                detection.scores > self.detection_threshold
+            )
             matched_sensors_mask = np.array(
                 [[m, m] for m in points_over_threshold_mask]
             ).flatten()
@@ -327,7 +378,9 @@ class TrackedObject:
         detected_at_least_once_mask = np.array(
             [[m, m] for m in self.detected_at_least_once_points]
         ).flatten()
-        self.filter.x[self.dim_z :][np.logical_not(detected_at_least_once_mask)] = 0
+        self.filter.x[self.dim_z :][
+            np.logical_not(detected_at_least_once_mask)
+        ] = 0
         self.detected_at_least_once_points = np.logical_or(
             self.detected_at_least_once_points, points_over_threshold_mask
         )
@@ -348,15 +401,19 @@ class TrackedObject:
     def conditionally_add_to_past_detections(self, detection):
         """Adds detections into (and pops detections away) from `past_detections`
 
-        It does so by keeping a fixed amount of past detections saved into each 
+        It does so by keeping a fixed amount of past detections saved into each
         TrackedObject, while maintaining them distributed uniformly through the object's
         lifetime.
         """
-        if self.past_detections_length == 0: return
+        if self.past_detections_length == 0:
+            return
         if len(self.past_detections) < self.past_detections_length:
             detection.age = self.age
             self.past_detections.append(detection)
-        elif self.age >= self.past_detections[0].age * self.past_detections_length:
+        elif (
+            self.age
+            >= self.past_detections[0].age * self.past_detections_length
+        ):
             self.past_detections.pop(0)
             detection.age = self.age
             self.past_detections.append(detection)
@@ -365,5 +422,10 @@ class TrackedObject:
 class Detection:
     def __init__(self, points: np.array, scores=None, data=None):
         self.points = points
+        self.box = points_to_box(points)
         self.scores = scores
         self.data = data
+
+    @classmethod
+    def from_box(cls, box: np.array, scores=None, data=None):
+        return cls(box_to_points(box), scores, data)
