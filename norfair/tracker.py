@@ -1,10 +1,34 @@
 import math
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, List, Tuple, Optional, Sequence, Union
 
 import numpy as np
 
 from .utils import validate_points
 from .filter import FilterSetup
+
+
+def points_to_box(points) -> List[float]:
+    ymin, xmin = np.min(points, axis=0).tolist()
+    ymax, xmax = np.max(points, axis=0).tolist()
+    box = [ymin, xmin, ymax, xmax]
+    return box
+
+
+def box_to_points(box: Union[Sequence, np.ndarray]) -> List[Tuple[float]]:
+    # convert to list.
+    if isinstance(box, np.ndarray):
+        assert box.ndim == 1
+        box = box.tolist()
+    # unstack coordinates.
+    ymin, xmin, ymax, xmax = box
+    # points is a list of xy pairs.
+    points = [
+        (ymin, xmin),
+        (ymin, xmax),
+        (ymax, xmax),
+        (ymax, xmin),
+    ]
+    return points
 
 
 class Tracker:
@@ -302,6 +326,10 @@ class TrackedObject:
         return positions
 
     @property
+    def estimate_box(self):
+        return points_to_box(self.estimate)
+
+    @property
     def live_points(self):
         return self.point_hit_counter > self.point_hit_inertia_min
 
@@ -394,5 +422,10 @@ class TrackedObject:
 class Detection:
     def __init__(self, points: np.array, scores=None, data=None):
         self.points = points
+        self.box = points_to_box(points)
         self.scores = scores
         self.data = data
+
+    @classmethod
+    def from_box(cls, box: np.array, scores=None, data=None):
+        return cls(box_to_points(box), scores, data)
