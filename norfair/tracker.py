@@ -299,6 +299,8 @@ class TrackedObject:
         self.dim_z = 2 * self.num_points
         # add sent property.
         self.sent = False
+        # reinfer properties.
+        self.last_infer = -1
 
     def tracker_step(self):
         self.hit_counter -= 1
