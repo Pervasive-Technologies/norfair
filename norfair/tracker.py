@@ -301,6 +301,7 @@ class TrackedObject:
         self.sent = False
         # reinfer properties.
         self.last_infer = -1
+        self.num_infers = 0
 
     def tracker_step(self):
         self.hit_counter -= 1
